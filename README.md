@@ -11,7 +11,7 @@ Este sistema soluciona los problemas de overbooking, descontrol de consumos y fa
 
 ## 📂 Contenido del repositorio
 * `Proyecto_Hotel_Resort.sql`: Script completo que incluye la creación de tablas (DDL), inserción de datos (DML), vistas, triggers y el script de validación.
-* `Diagrama_ER.pdf`: Diagrama Entidad-Relación con notación Crow's Foot.
+* `Diagrama.png`: Diagrama Entidad-Relación con notación Crow's Foot.
 
 ## 🚀 Características Principales
 * **Restricción Anti-Overbooking:** Uso de `EXCLUDE USING gist` con `daterange` para evitar reservas duplicadas en las mismas fechas.
