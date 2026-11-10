@@ -7,9 +7,10 @@
 -- PASO 1: PREPARACIÓN DEL ENTORNO
 -- ----------------------------------------------------------------------------
 -- Extension necesaria para la restricción anti-overbooking (permite usar rangos de fechas)
+--
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
--- Los tipos ENUM evitan que se escriban datos basura (ej. 'Ocupado' en vez de 'Ocupada')
+-- Los tipos ENUM evitan que se escriban datos basura (ej. 'Ocupado' en vez de 'Ocupada'),filtro para que todo lo que se ingrese sea alguno de esos.
 CREATE TYPE tipo_habitacion AS ENUM ('Sencilla', 'Doble', 'Suite');
 CREATE TYPE estado_habitacion AS ENUM ('Disponible', 'Ocupada', 'Mantenimiento');
 CREATE TYPE estado_reserva AS ENUM ('Confirmada', 'Activa', 'Finalizada', 'Cancelada');
@@ -252,12 +253,12 @@ INSERT INTO FACTURA (numero_factura, metodo_pago, estado_pago, id_reserva) VALUE
 -- ----------------------------------------------------------------------------
 -- PASO 5: VISTAS
 -- ----------------------------------------------------------------------------
--- Vista 1: Muestra solo las habitaciones disponibles ordenadas por precio
+-- Vista 1: Muestra solo las habitaciones disponibles ordenadas por precio - Recepcion
 CREATE OR REPLACE VIEW V_HabitacionesDisponibles AS
 SELECT numero_habitacion, tipo, piso, tarifa_noche
 FROM HABITACION WHERE estado = 'Disponible' ORDER BY tarifa_noche ASC;
 
--- Vista 2: Estado financiero de reservas activas
+-- Vista 2: Estado financiero de reservas activas - Caja finanzas - Resumen en tiempo real de los huespedes,cuanto llevan de consumo...
 CREATE OR REPLACE VIEW V_ResumenEstadiaConsumos AS
 SELECT 
     r.codigo_reserva, 
@@ -273,7 +274,7 @@ LEFT JOIN CONSUMO_SERVICIO cs ON r.id_reserva = cs.id_reserva -- LEFT JOIN para 
 WHERE r.estado = 'Activa'
 GROUP BY r.codigo_reserva, h.nombres, h.apellidos, hab.numero_habitacion, r.fecha_checkin, hab.tarifa_noche;
 
--- Vista 3: Ingresos agrupados por mes y tipo
+-- Vista 3: Ingresos agrupados por mes y tipo - Gerencia,agrupar dinero.
 CREATE OR REPLACE VIEW V_IngresosMensualesPorTipo AS
 SELECT TO_CHAR(mes, 'YYYY-MM') AS anio_mes, categoria, total_ingresos
 FROM (
@@ -291,6 +292,7 @@ FROM (
 -- PASO 6: SCRIPT DE VALIDACIÓN (Bloques DO para probar los triggers)
 -- ----------------------------------------------------------------------------
 -- Usamos EXCEPTION WHEN OTHERS para capturar el error esperado y mostrarlo en pantalla
+--1 Prueba del trigger 2 ,3 aguas del minibar(servicio8) en la reserva 5.
 DO $$
 DECLARE v_subtotal NUMERIC;
 BEGIN
@@ -298,13 +300,13 @@ BEGIN
     SELECT subtotal_consumo INTO v_subtotal FROM CONSUMO_SERVICIO WHERE id_reserva = 5 AND id_servicio = 8 ORDER BY id_consumo DESC LIMIT 1;
     IF v_subtotal = 9.00 THEN RAISE NOTICE '✔ PRUEBA 1: Subtotales correctos (Esperado 9.00, Obtenido %)', v_subtotal; END IF;
 END $$;
-
+--2 Validacion trigger 2 Intenta insertar un consumo del servicio 10 (que es el Tour Guiado, que está en estado 'Inactivo'
 DO $$
 BEGIN
     INSERT INTO CONSUMO_SERVICIO (cantidad, id_reserva, id_servicio) VALUES (1, 5, 10);
     RAISE EXCEPTION 'FALLIDA: Se permitió consumir un servicio inactivo.';
 EXCEPTION WHEN OTHERS THEN RAISE NOTICE '✔ PRUEBA 2: Rechazado correctamente -> %', SQLERRM; END $$;
-
+-- 3 trigger 1 Cambia la reserva RES-007 a estado 'Activa' (Check-in) y luego revisa el estado de la habitación 6.
 DO $$
 DECLARE v_estado estado_habitacion;
 BEGIN
@@ -312,19 +314,19 @@ BEGIN
     SELECT estado INTO v_estado FROM HABITACION WHERE id_habitacion = 6;
     IF v_estado = 'Ocupada' THEN RAISE NOTICE '✔ PRUEBA 3: Habitación 6 marcada como Ocupada tras Check-in.'; END IF;
 END $$;
-
+--4 validacion trigger 1 Intenta hacer un Check-in en la habitación 6, que acabamos de ocupar en la Prueba 3.
 DO $$
 BEGIN
     INSERT INTO RESERVA (codigo_reserva, fecha_checkin, fecha_checkout, estado, id_huesped, id_habitacion) VALUES ('RES-TEST', '2024-05-01', '2024-05-05', 'Activa', 1, 6);
     RAISE EXCEPTION 'FALLIDA: Se permitió Check-in en habitación ocupada.';
 EXCEPTION WHEN OTHERS THEN RAISE NOTICE '✔ PRUEBA 4: Rechazado correctamente -> %', SQLERRM; END $$;
-
+--5 Restriccion exclude : intenta insertar una reserva en la habitación 1 para las fechas del 12 al 16 de enero. Pero la reserva RES-001 ya ocupa esa habitación del 10 al 15 de enero (las fechas se cruzan).
 DO $$
 BEGIN
     INSERT INTO RESERVA (codigo_reserva, fecha_checkin, fecha_checkout, estado, id_huesped, id_habitacion) VALUES ('RES-OVERLAP', '2024-01-12', '2024-01-16', 'Confirmada', 2, 1);
     RAISE EXCEPTION 'FALLIDA: Se permitió un Overbooking.';
 EXCEPTION WHEN OTHERS THEN RAISE NOTICE '✔ PRUEBA 5: Overbooking bloqueado -> %', SQLERRM; END $$;
-
+--6 Intenta insertar una reserva donde el Check-out (2024-06-08) es anterior al Check-in (2024-06-10) - Restriccion check.
 DO $$
 BEGIN
     INSERT INTO RESERVA (codigo_reserva, fecha_checkin, fecha_checkout, estado, id_huesped, id_habitacion) VALUES ('RES-BAD-DATE', '2024-06-10', '2024-06-08', 'Confirmada', 1, 1);
